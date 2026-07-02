@@ -3392,6 +3392,7 @@ describe("App interactions", () => {
         nextFrame.includes("Save view preferences?"),
       );
       expect(frame).toContain("You changed 1 view setting during this review.");
+      expect(frame).toContain("q discard");
       expect(frame).toContain("n never ask");
       expect(frame).toContain('- theme = "github-dark-default"');
       expect(frame).toContain('+ theme = "github-dark-dimmed"');
@@ -3399,8 +3400,9 @@ describe("App interactions", () => {
       expect(frame).not.toContain("wrap_lines =");
       expect(quit).toHaveBeenCalledTimes(0);
 
+      // A second "q" quits and discards.
       await act(async () => {
-        await setup.mockInput.typeText("d");
+        await setup.mockInput.typeText("q");
         await setup.renderOnce();
       });
       expect(quit).toHaveBeenCalledTimes(1);
