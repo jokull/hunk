@@ -3,6 +3,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { formatCliError } from "./core/errors";
+import { resolveFrameRateOptions } from "./core/frameRate";
 import {
   installJobControlInterruptSupport,
   installJobControlSuspendSupport,
@@ -86,6 +87,7 @@ async function main() {
   const renderer = await createCliRenderer({
     stdin: controllingTerminal?.stdin,
     stdout: process.stdout,
+    ...resolveFrameRateOptions(),
     useMouse: shouldUseMouseForApp({
       hasControllingTerminal: Boolean(controllingTerminal),
     }),
