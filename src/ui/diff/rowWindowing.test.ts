@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DiffSectionGeometry } from "./diffSectionGeometry";
 import type { PlannedReviewRow } from "./reviewRenderPlan";
-import { resolveVisiblePlannedRowWindow } from "./rowWindowing";
+import { quantizeVisibleBodyBounds, resolveVisiblePlannedRowWindow } from "./rowWindowing";
 
 /** Build one minimal planned row for row-window slicing tests. */
 function createTestPlannedRow(key: string): PlannedReviewRow {
@@ -163,5 +163,67 @@ describe("resolveVisiblePlannedRowWindow", () => {
       "row:30003",
       "row:30004",
     ]);
+  });
+});
+
+describe("quantizeVisibleBodyBounds", () => {
+  test("snaps edges outward to the quantum grid", () => {
+    const bounds = quantizeVisibleBodyBounds({
+      minTop: 21,
+      maxBottom: 91,
+      bodyHeight: 500,
+      quantumRows: 16,
+    });
+
+    expect(bounds).toEqual({ top: 16, height: 96 - 16 });
+  });
+
+  test("is stable across scroll deltas that stay within the same grid buckets", () => {
+    const first = quantizeVisibleBodyBounds({
+      minTop: 33,
+      maxBottom: 97,
+      bodyHeight: 500,
+      quantumRows: 16,
+    });
+    const second = quantizeVisibleBodyBounds({
+      minTop: 33 + 7,
+      maxBottom: 97 + 7,
+      bodyHeight: 500,
+      quantumRows: 16,
+    });
+
+    expect(second).toEqual(first);
+  });
+
+  test("never narrows the requested interval", () => {
+    const bounds = quantizeVisibleBodyBounds({
+      minTop: 30,
+      maxBottom: 70,
+      bodyHeight: 500,
+      quantumRows: 16,
+    });
+
+    expect(bounds.top).toBeLessThanOrEqual(30);
+    expect(bounds.top + bounds.height).toBeGreaterThanOrEqual(70);
+  });
+
+  test("clamps into the body extent", () => {
+    expect(
+      quantizeVisibleBodyBounds({
+        minTop: -50,
+        maxBottom: 700,
+        bodyHeight: 100,
+        quantumRows: 16,
+      }),
+    ).toEqual({ top: 0, height: 100 });
+
+    expect(
+      quantizeVisibleBodyBounds({
+        minTop: 400,
+        maxBottom: 500,
+        bodyHeight: 100,
+        quantumRows: 16,
+      }),
+    ).toEqual({ top: 100, height: 0 });
   });
 });

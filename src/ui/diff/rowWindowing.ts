@@ -7,6 +7,47 @@ export interface VisibleBodyBounds {
   height: number;
 }
 
+/**
+ * Grid step used to snap visible-window edges outward before clamping.
+ *
+ * The scroll overscan margin already mounts well over one viewport of extra rows, so snapping
+ * the requested window outward to this grid changes only how much of that margin is mounted,
+ * never what is visible. Coarser edges mean most small scroll deltas resolve to numerically
+ * identical bounds, which lets DiffPane reuse the previous bounds object and lets memoized
+ * sections skip re-rendering entirely on those ticks.
+ */
+export const VISIBLE_BODY_BOUNDS_QUANTUM_ROWS = 16;
+
+/**
+ * Snap a requested file-local visible interval outward to the bounds grid, then clamp it into
+ * the real body extent. Returns `{ top, height }` in the same file-local row units used by
+ * `resolveVisiblePlannedRowWindow`. Snapping always widens the interval, so the mounted slice
+ * is a superset of the unquantized window and rendering output is unchanged.
+ */
+export function quantizeVisibleBodyBounds({
+  minTop,
+  maxBottom,
+  bodyHeight,
+  quantumRows = VISIBLE_BODY_BOUNDS_QUANTUM_ROWS,
+}: {
+  minTop: number;
+  maxBottom: number;
+  bodyHeight: number;
+  quantumRows?: number;
+}): VisibleBodyBounds {
+  const step = Math.max(1, quantumRows);
+  const snappedTop = Math.floor(minTop / step) * step;
+  const snappedBottom = Math.ceil(maxBottom / step) * step;
+
+  const clampedTop = Math.min(bodyHeight, Math.max(0, snappedTop));
+  const clampedBottom = Math.min(bodyHeight, Math.max(clampedTop, snappedBottom));
+
+  return {
+    top: clampedTop,
+    height: clampedBottom - clampedTop,
+  };
+}
+
 export interface VisiblePlannedRowWindow {
   bottomSpacerHeight: number;
   plannedRows: PlannedReviewRow[];

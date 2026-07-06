@@ -57,7 +57,8 @@ import type { AppTheme } from "../../themes";
 import { DiffSection } from "./DiffSection";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
-import type { VisibleBodyBounds } from "../../diff/rowWindowing";
+import { quantizeVisibleBodyBounds, type VisibleBodyBounds } from "../../diff/rowWindowing";
+import { noteHighlightSchedulerInteraction } from "../../diff/highlightScheduling";
 import { prefetchHighlightedDiff } from "../../diff/useHighlightedDiff";
 import {
   buildFileRenderWindow,
@@ -355,6 +356,7 @@ export function DiffPane({
         return;
       }
 
+      noteHighlightSchedulerInteraction();
       clearAddNoteHoverForScroll();
 
       if (!scrollBox || wrapLines) {
@@ -608,6 +610,9 @@ export function DiffPane({
     // timer-deferred read so rapid wheel/key bursts collapse into at most one React update
     // per frame instead of turning every native scroll delta into a full review-stream render.
     const handleViewportChange = () => {
+      // Scroll input is latency-sensitive: hold queued highlight chunks back while it streams in.
+      noteHighlightSchedulerInteraction();
+
       if (scheduled) {
         return;
       }
@@ -1233,17 +1238,22 @@ export function DiffPane({
       // geometry as its fallback, so mounting an offscreen selected hunk is not necessary and would
       // remount very large hunks in full.
 
-      // Clamp the requested file-local interval back into the real body extent, then store it as
-      // { top, height } so the row slicer can rebuild the matching [top, bottom) window later.
-      const clampedTop = Math.min(geometry.bodyHeight, Math.max(0, minTop));
-      const clampedBottom = Math.min(geometry.bodyHeight, Math.max(clampedTop, maxBottom));
-      const height = clampedBottom - clampedTop;
+      // Snap the requested file-local interval outward to the bounds grid and clamp it back into
+      // the real body extent. Quantized edges keep the bounds numerically stable across small
+      // scroll deltas, so the previous-object reuse below can actually hold while scrolling.
+      const bounds = quantizeVisibleBodyBounds({
+        minTop,
+        maxBottom,
+        bodyHeight: geometry.bodyHeight,
+      });
       const previousBounds = previous.get(file.id);
       next.set(
         file.id,
-        previousBounds && previousBounds.top === clampedTop && previousBounds.height === height
+        previousBounds &&
+          previousBounds.top === bounds.top &&
+          previousBounds.height === bounds.height
           ? previousBounds
-          : { top: clampedTop, height },
+          : bounds,
       );
     }
 

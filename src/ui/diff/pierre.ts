@@ -13,6 +13,7 @@ import { blendHex, hexColorDistance } from "../lib/color";
 import { sanitizeTerminalLine } from "../../lib/terminalText";
 import { TRANSPARENT_BACKGROUND, type AppTheme } from "../themes";
 import { expandDiffTabs } from "./codeColumns";
+import { scheduleHighlightWork } from "./highlightScheduling";
 
 const PIERRE_THEME = {
   light: "pierre-light",
@@ -597,15 +598,16 @@ function queueHighlightedWork<T>(run: () => T) {
   const queued = queuedHighlightWork.then(
     () =>
       new Promise<T>((resolve, reject) => {
-        // Highlighting is CPU-heavy background work. Scheduling each serialized job as a timer,
-        // rather than a microtask, yields back to OpenTUI input and frame timers between files.
-        setTimeout(() => {
+        // Highlighting is CPU-heavy background work. Scheduling each serialized job through the
+        // interaction-aware scheduler (a timer, never a microtask) yields back to OpenTUI input
+        // and frame timers between files and holds chunks back while input is streaming in.
+        scheduleHighlightWork(() => {
           try {
             resolve(run());
           } catch (error) {
             reject(error);
           }
-        }, 0);
+        });
       }),
   );
 

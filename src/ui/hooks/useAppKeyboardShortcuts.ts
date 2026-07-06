@@ -15,6 +15,7 @@ import {
   isStepDownKey,
   isStepUpKey,
 } from "../lib/keyboard";
+import { noteHighlightSchedulerInteraction } from "../diff/highlightScheduling";
 
 type FocusArea = "files" | "filter" | "note";
 type ScrollUnit = "step" | "viewport" | "content" | "half";
@@ -576,6 +577,9 @@ export function useAppKeyboardShortcuts({
   };
 
   useKeyboard((key: KeyEvent) => {
+    // Let background highlight chunks yield to keyboard-driven navigation and scrolling.
+    noteHighlightSchedulerInteraction();
+
     if (handleMenuToggleShortcut(key)) {
       return;
     }

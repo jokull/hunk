@@ -11,6 +11,21 @@ import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 
+// Separator glyph runs are identical for every section at a given width, but building one costs a
+// long non-ASCII repeat plus a width measurement. Cache the fitted line per width so mounting many
+// sections (and window-shift re-renders) reuse the same string.
+const separatorTextByWidth = new Map<number, string>();
+
+/** Return the fitted "─" separator line for one width, memoized per width. */
+function separatorText(width: number) {
+  let text = separatorTextByWidth.get(width);
+  if (text === undefined) {
+    text = fitText("─".repeat(width), width);
+    separatorTextByWidth.set(width, text);
+  }
+  return text;
+}
+
 interface DiffSectionProps {
   codeHorizontalOffset: number;
   expandedGapKeys: ReadonlySet<string>;
@@ -99,7 +114,7 @@ function DiffSectionComponent({
             backgroundColor: theme.panel,
           }}
         >
-          <text fg={theme.border}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
+          <text fg={theme.border}>{separatorText(separatorWidth)}</text>
         </box>
       ) : null}
 
