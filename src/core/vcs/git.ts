@@ -6,18 +6,15 @@ import {
   buildGitShowArgs,
   buildGitStashShowArgs,
   listGitUntrackedFiles,
-  normalizeUntrackedPatchHeaders,
   resolveGitColorMovedOptions,
   resolveGitCommitRef,
   resolveGitDiffEndpoints,
   resolveGitRepoRoot,
   runGitText,
-  runGitUntrackedFileDiffText,
   type GitDiffEndpoint,
   type GitDiffEndpoints,
 } from "../git";
 import {
-  buildDiffFile,
   createSkippedLargeMetadata,
   type BuildDiffFileOptions,
   type DiffFileSourceContext,
@@ -27,13 +24,9 @@ import {
   type GitFileSourceFetcherOptions,
   type GitFileSourceSpec,
 } from "./gitSource";
-import type { DiffFile, VcsDiffCommandInput } from "../types";
+import type { DiffFile } from "../types";
 import type { VcsAdapter, VcsReviewOperation } from "./types";
-import {
-  buildSkippedLargeUntrackedDiffFile,
-  inspectLargeUntrackedFile,
-  parseUntrackedPatchFile,
-} from "./untracked";
+import { buildFilesystemUntrackedDiffFile } from "./untracked";
 
 const LARGE_DIFF_FILE_MAX_BYTES = 1_000_000;
 const LARGE_DIFF_FILE_MAX_LINES = 20_000;
@@ -115,27 +108,14 @@ function buildSkippedLargeTrackedDiffFile(
   };
 }
 
-/** Build one Git-backed untracked file diff, preserving Git's binary and path quoting behavior. */
+/** Build one untracked file diff synthesized from the working tree, no per-file Git spawn. */
 function buildGitUntrackedDiffFile(
-  input: VcsDiffCommandInput,
   filePath: string,
   index: number,
   repoRoot: string,
   sourcePrefix: string,
-  gitExecutable: string,
 ) {
-  const largeFileCheck = inspectLargeUntrackedFile(repoRoot, filePath);
-  if (largeFileCheck.shouldSkip) {
-    return buildSkippedLargeUntrackedDiffFile(filePath, index, sourcePrefix, largeFileCheck);
-  }
-
-  const patch = normalizeUntrackedPatchHeaders(
-    runGitUntrackedFileDiffText(input, filePath, { repoRoot, gitExecutable }),
-    filePath,
-  );
-
-  return buildDiffFile(parseUntrackedPatchFile(patch, filePath), patch, index, sourcePrefix, null, {
-    isUntracked: true,
+  return buildFilesystemUntrackedDiffFile(repoRoot, filePath, index, sourcePrefix, {
     sourceFetcherBuilder: createSourceFetcherBuilder(() => ({
       old: { kind: "none" },
       new: { kind: "fs", absolutePath: join(repoRoot, filePath) },
@@ -295,12 +275,10 @@ export const GitVcsAdapter: VcsAdapter = {
             ...listGitUntrackedFiles(input, { cwd, repoRoot, gitExecutable }).map(
               (filePath, index) =>
                 buildGitUntrackedDiffFile(
-                  input,
                   filePath,
                   largeTrackedFiles.length + index,
                   repoRoot,
                   repoRoot,
-                  gitExecutable,
                 ),
             ),
           ],

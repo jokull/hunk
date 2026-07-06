@@ -1,9 +1,8 @@
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
-import { createTwoFilesPatch } from "diff";
 import fs from "node:fs";
 import { join } from "node:path";
-import { createSkippedBinaryMetadata, isProbablyBinaryFile } from "../binary";
-import { buildDiffFile, createSkippedLargeMetadata } from "../diffFile";
+import { isProbablyBinaryFile } from "../binary";
+import { buildDiffFile, createSkippedLargeMetadata, type BuildDiffFileOptions } from "../diffFile";
 import { escapeUntrackedPatchPath } from "../patch/normalize";
 import type { DiffFile } from "../types";
 
@@ -132,12 +131,57 @@ export function parseUntrackedPatchFile(patchText: string, filePath: string) {
   } satisfies FileDiffMetadata;
 }
 
+interface UntrackedFileEntry {
+  kind: "binary" | "text";
+  mode: string;
+  text: string;
+}
+
+/** Read one untracked path the way Git renders new files: symlinks diff their link text. */
+function readUntrackedFileEntry(absolutePath: string): UntrackedFileEntry {
+  const stat = fs.lstatSync(absolutePath);
+  if (stat.isSymbolicLink()) {
+    return { kind: "text", mode: "120000", text: fs.readlinkSync(absolutePath, "utf8") };
+  }
+
+  const mode = (stat.mode & 0o111) !== 0 ? "100755" : "100644";
+  if (isProbablyBinaryFile(absolutePath)) {
+    return { kind: "binary", mode, text: "" };
+  }
+
+  return { kind: "text", mode, text: fs.readFileSync(absolutePath, "utf8") };
+}
+
+/** Synthesize the Git-style new-file patch for one untracked file without spawning Git. */
+function synthesizeUntrackedPatch(filePath: string, entry: UntrackedFileEntry): string {
+  const safePath = escapeUntrackedPatchPath(filePath);
+  const header = `diff --git a/${safePath} b/${safePath}\nnew file mode ${entry.mode}\n`;
+
+  if (entry.kind === "binary") {
+    return `${header}Binary files /dev/null and b/${safePath} differ\n`;
+  }
+
+  const text = entry.text.replaceAll("\r\n", "\n");
+  if (text === "") {
+    return header;
+  }
+
+  const endsWithNewline = text.endsWith("\n");
+  const lines = (endsWithNewline ? text.slice(0, -1) : text).split("\n");
+  const hunkHeader = `@@ -0,0 +1${lines.length === 1 ? "" : `,${lines.length}`} @@`;
+  const body = lines.map((line) => `+${line}`).join("\n");
+  const noNewlineMarker = endsWithNewline ? "" : "\n\\ No newline at end of file";
+
+  return `${header}--- /dev/null\n+++ b/${safePath}\n${hunkHeader}\n${body}${noNewlineMarker}\n`;
+}
+
 /** Build one filesystem-backed untracked file diff from its current contents. */
 export function buildFilesystemUntrackedDiffFile(
   repoRoot: string,
   filePath: string,
   index: number,
   sourcePrefix: string,
+  options: Pick<BuildDiffFileOptions, "sourceFetcherBuilder"> = {},
 ) {
   const absolutePath = join(repoRoot, filePath);
   const largeFileCheck = inspectLargeUntrackedFile(repoRoot, filePath);
@@ -145,28 +189,9 @@ export function buildFilesystemUntrackedDiffFile(
     return buildSkippedLargeUntrackedDiffFile(filePath, index, sourcePrefix, largeFileCheck);
   }
 
-  if (isProbablyBinaryFile(absolutePath)) {
-    return buildDiffFile(
-      createSkippedBinaryMetadata(filePath, "new"),
-      `Binary file skipped: ${filePath}\n`,
-      index,
-      sourcePrefix,
-      null,
-      { isBinary: true, isUntracked: true },
-    );
-  }
-
-  const patch = createTwoFilesPatch(
-    "/dev/null",
-    escapeUntrackedPatchPath(filePath),
-    "",
-    fs.readFileSync(absolutePath, "utf8"),
-    "",
-    "",
-    { context: 3 },
-  ).replaceAll("\r\n", "\n");
-
+  const patch = synthesizeUntrackedPatch(filePath, readUntrackedFileEntry(absolutePath));
   return buildDiffFile(parseUntrackedPatchFile(patch, filePath), patch, index, sourcePrefix, null, {
     isUntracked: true,
+    sourceFetcherBuilder: options.sourceFetcherBuilder,
   });
 }

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { join } from "node:path";
 import { HunkUserError } from "./errors";
-import { escapeUntrackedPatchPath } from "./patch/normalize";
 import type { VcsDiffCommandInput, VcsShowCommandInput, VcsStashShowCommandInput } from "./types";
 import { normalizePathForOS } from "../lib/osPath";
 
@@ -148,21 +147,6 @@ export function buildGitStatusArgs(input: VcsDiffCommandInput) {
 
   appendGitPathspecs(args, input.pathspecs);
   return args;
-}
-
-/** Build the synthetic patch used to render one untracked file as a new-file diff. */
-function buildGitNewFileDiffArgs(filePath: string) {
-  // `--no-ext-diff` keeps user-configured `diff.external` tools (difftastic, delta, etc.)
-  // from replacing the unified-diff output Pierre needs to parse this synthetic patch.
-  return withNormalizedDiffPrefixes([
-    "diff",
-    "--no-ext-diff",
-    "--no-index",
-    "--no-color",
-    "--",
-    "/dev/null",
-    filePath,
-  ]);
 }
 
 /** Build the exact `git show` arguments used for commit review. */
@@ -591,52 +575,6 @@ export function listGitUntrackedFiles(
   return untrackedFiles.filter((filePath) =>
     isReviewableUntrackedPath(normalizedRepoRoot, filePath),
   );
-}
-
-/** Rewrite Git's quoted untracked-file headers into parser-friendly paths. */
-export function normalizeUntrackedPatchHeaders(patchText: string, filePath: string) {
-  const safePath = escapeUntrackedPatchPath(filePath);
-
-  return patchText
-    .replaceAll("\r\n", "\n")
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("diff --git ")) {
-        return `diff --git a/${safePath} b/${safePath}`;
-      }
-
-      if (line.startsWith("+++ ")) {
-        return `+++ b/${safePath}`;
-      }
-
-      if (line.startsWith("Binary files /dev/null and ")) {
-        return `Binary files /dev/null and b/${safePath} differ`;
-      }
-
-      return line;
-    })
-    .join("\n");
-}
-
-/** Return the raw Git patch text for one untracked file using `git diff --no-index`. */
-export function runGitUntrackedFileDiffText(
-  input: VcsDiffCommandInput,
-  filePath: string,
-  {
-    cwd = process.cwd(),
-    repoRoot,
-    gitExecutable = "git",
-  }: Omit<RunGitTextOptions, "input" | "args"> & { repoRoot?: string } = {},
-) {
-  const normalizedRepoRoot = repoRoot ?? resolveGitRepoRoot(input, { cwd, gitExecutable });
-
-  return runGitCommand({
-    input,
-    args: buildGitNewFileDiffArgs(filePath),
-    cwd: normalizedRepoRoot,
-    gitExecutable,
-    acceptedExitCodes: [0, 1],
-  }).stdout;
 }
 
 export function resolveGitRepoRoot(
